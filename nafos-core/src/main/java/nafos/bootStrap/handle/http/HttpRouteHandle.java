@@ -39,48 +39,51 @@ public class HttpRouteHandle {
 
 
     public void route(ChannelHandlerContext ctx, NsRequest request, HttpRouteClassAndMethod httpRouteClassAndMethod) {
-
-        //线程设置request
-        ThreadLocalHelper.setThreadInfo(new ReqResBean(request));
-
-        ClassAndMethod filter;
-
-
-        //  1.前置filter 拦截器
-        for (Class interceptor : httpRouteClassAndMethod.getInterceptors()) {
-            filter = InitMothods.getInterceptor(interceptor);
-            if (filter == null) {
-                logger.warn("{} :拦截器没有实现InterceptorInterface,或者继承AbstractHttpInterceptor. 拦截无效", interceptor);
-                continue;
-            }
-            filter.setIndex(0);
-            if (!ClassAndMethodHelper.checkResultStatus(filter, ctx, request)) return;
-        }
-
-        // 2.消息入口处理
-        Object[] contentObj = null;
         try {
-            contentObj = getMessageObjOnContent(httpRouteClassAndMethod, request);
-        } catch (Exception e) {
-            NettyUtil.sendError(ctx, HttpResponseStatus.NO_CONTENT);
-            e.printStackTrace();
-            return;
+            //线程设置request
+            ThreadLocalHelper.setThreadInfo(new ReqResBean(request));
+
+            ClassAndMethod filter;
+
+
+            //  1.前置filter 拦截器
+            for (Class interceptor : httpRouteClassAndMethod.getInterceptors()) {
+                filter = InitMothods.getInterceptor(interceptor);
+                if (filter == null) {
+                    logger.warn("{} :拦截器没有实现InterceptorInterface,或者继承AbstractHttpInterceptor. 拦截无效", interceptor);
+                    continue;
+                }
+                filter.setIndex(0);
+                if (!ClassAndMethodHelper.checkResultStatus(filter, ctx, request)) return;
+            }
+
+            // 2.消息入口处理
+            Object[] contentObj = null;
+            try {
+                contentObj = getMessageObjOnContent(httpRouteClassAndMethod, request);
+            } catch (Exception e) {
+                NettyUtil.sendError(ctx, HttpResponseStatus.NO_CONTENT);
+                e.printStackTrace();
+                return;
+            }
+
+            // 3.寻找路由成功,返回结果
+            String methodName = httpRouteClassAndMethod.getClazz().getName() + "." + httpRouteClassAndMethod.getMethod().getMethodNames()[httpRouteClassAndMethod.getIndex()];
+            RunWatch runWatch = RunWatch.init(methodName);
+
+            Object returnObj = routeMethod(httpRouteClassAndMethod, contentObj);
+
+            if (httpRouteClassAndMethod.isPrintLog()) {
+                logger.info("方法：" + methodName + "       程序耗时：" + runWatch.stop() + "ms");
+            } else {
+                runWatch.stop();
+            }
+
+            // 4.发送处理
+            sendMethod(httpRouteClassAndMethod, returnObj, ctx, request);
+        } finally {
+            request.release();
         }
-
-        // 3.寻找路由成功,返回结果
-        String methodName = httpRouteClassAndMethod.getClazz().getName() + "." + httpRouteClassAndMethod.getMethod().getMethodNames()[httpRouteClassAndMethod.getIndex()];
-        RunWatch runWatch = RunWatch.init(methodName);
-
-        Object returnObj = routeMethod(httpRouteClassAndMethod, contentObj);
-
-        if (httpRouteClassAndMethod.isPrintLog()) {
-            logger.info("方法：" + methodName + "       程序耗时：" + runWatch.stop() + "ms");
-        } else {
-            runWatch.stop();
-        }
-
-        // 4.发送处理
-        sendMethod(httpRouteClassAndMethod, returnObj, ctx, request);
     }
 
 
